@@ -5,15 +5,74 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_chroma import Chroma
 
 CHROMA_PATH = os.getenv("CHROMA_PATH", "chroma")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "local-rag")
-TEXT_EMBEDDING_MODEL = os.getenv("TEXT_EMBEDDING_MODEL", "nomic-embed-text")
+# COLLECTION_NAME = os.getenv("COLLECTION_NAME", "local-rag")
+TEXT_EMBEDDING_MODEL = os.getenv("TEXT_EMBEDDING_MODEL", "phi4")
+COLLECTIONS = {}  # cache per Chroma vectorstore attivi
 
-persistent_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings(allow_reset=True))
-collection = persistent_client.get_or_create_collection(COLLECTION_NAME)
+_chroma_client = chromadb.Client(
+    Settings(
+        persist_directory="./chroma",  # deve essere sempre lo stesso path
+        is_persistent=True,
+    )
+)
 embeddings = OllamaEmbeddings(model=TEXT_EMBEDDING_MODEL)
 
-vector_store = Chroma(
-    client=persistent_client,
-    collection_name=COLLECTION_NAME,
-    embedding_function=embeddings,
-)
+
+def list_collections():
+    return _chroma_client.list_collections()
+
+
+def create_or_get_collection(collection_name: str):
+    try:
+        collection = _chroma_client.get_collection(name=collection_name)
+        print(f"✔️ Collection '{collection_name}' già esistente.")
+    except Exception:
+        collection = _chroma_client.create_collection(name=collection_name)
+        print(f"✅ Nuova collection '{collection_name}' creata.")
+    return collection
+
+
+def delete_collection(collection_name: str):
+    try:
+        _chroma_client.delete_collection(name=collection_name)
+        print(f"🗑️ Collection '{collection_name}' eliminata.")
+    except Exception as e:
+        print(f"❌ Errore nell'eliminare '{collection_name}': {e}")
+
+
+def get_vector_store(collection_name: str):
+    if collection_name in COLLECTIONS:
+        return COLLECTIONS[collection_name]
+
+    try:
+        collection = _chroma_client.get_collection(collection_name)
+    except:
+        collection = _chroma_client.create_collection(collection_name)
+
+    vectorstore = Chroma(
+        client=_chroma_client,
+        collection_name=collection_name,
+        embedding_function=embeddings,
+    )
+    COLLECTIONS[collection_name] = vectorstore
+    return vectorstore
+
+
+def initialize_collections():
+    """Popola il dizionario COLLECTIONS con i vectorstore già esistenti."""
+    existing_collections = _chroma_client.list_collections()
+    for collection in existing_collections:
+
+        vector_store = chromadb.PersistentClient(
+            settings=Settings(
+                persist_directory=CHROMA_PATH,
+                anonymized_telemetry=False,
+            )
+        )
+        COLLECTIONS[collection] = vector_store
+
+
+# Call initialize_collections at the start of the application
+
+
+initialize_collections()

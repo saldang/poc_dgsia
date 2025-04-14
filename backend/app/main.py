@@ -1,10 +1,11 @@
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.responses import JSONResponse
 from .embed import embed
 from .query import query
-from .vector_db import vector_store, persistent_client, collection
+from .routers import collections
+from .vector_db import create_or_get_collection
 
 load_dotenv()
 
@@ -12,18 +13,22 @@ TEMP_FOLDER = os.getenv("TEMP_FOLDER", "./_temp")
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 
 app = FastAPI()
+app.include_router(collections.router)
 
 
 @app.post("/embed")
-async def route_embed(file: UploadFile = File(...)):
-    """Embeds the uploaded files into the database"""
+async def route_embed(file: UploadFile = File(...), request: Request = None):
+
+    collection_name = request.query_params.get("collection", "default")
+    print(f"Collection: {collection_name}")
+    """Embeds the uploaded files into the specified collection in the database"""
     if not file:
         raise HTTPException(status_code=400, detail="No file part")
 
     if file.filename == "":
         raise HTTPException(status_code=400, detail="No selected file")
 
-    embedded = embed(file)
+    embedded = embed(file, collection_name=collection_name)
     print(embedded)
 
     if embedded:
@@ -35,7 +40,10 @@ async def route_embed(file: UploadFile = File(...)):
 
 @app.post("/query")
 async def route_query(data: dict):
-    response = query(data.get("query"), data.get("model"))
+    print(f"Query: {data.get('query')}")
+    print(f"Model: {data.get('model')}")
+    print(f"Collection: {data.get('collection')}")
+    response = query(data.get("query"), data.get("model"), data.get("collection"))
 
     if response:
         return JSONResponse(content={"message": response}, status_code=200)
@@ -43,30 +51,21 @@ async def route_query(data: dict):
     raise HTTPException(status_code=400, detail="Something went wrong")
 
 
-@app.post("/reset_db")
-async def reset_chroma_db():
-    try:
-        if persistent_client.reset(): 
-            return {"message": "ChromaDB reset successful"}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.get("/list_documents")
-async def list_documents():
+@app.post("/list_documents")
+async def list_documents(request: Request):
     """Recupera la lista dei documenti presenti in ChromaDB."""
+    json = await request.json()
+    collection = json.get("collection", "default")
+    print(f"Collection: {collection}")
     try:
-        results = collection.get(include=["documents", "embeddings"])
-        print(results)
+        results = create_or_get_collection(collection_name=collection).get()
         all_docs = []
-        if results and "ids" in results:
-            print(results["embeddings"])
-            for doc in results["ids"]:
-                all_docs.append(doc.split("_chunk_")[0])
-
+        if results:
+            for doc in results["metadatas"]:
+                all_docs.append(doc["source"])
             return {"documents": list(set(all_docs))}
     except Exception as e:
-        print(str(e))
+        print("ERRORE:", str(e))
         return {"documents": []}
 
 

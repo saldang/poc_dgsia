@@ -1,7 +1,8 @@
 import os
-from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from .vector_db import collection, embeddings as em
+from .utils.ingestion import multimodal_ingestion
+from .vector_db import create_or_get_collection, embeddings as em
+
 import pandas as pd
 
 TEMP_FOLDER = os.getenv("TEMP_FOLDER", "./_temp")
@@ -30,59 +31,36 @@ def save_file(file):
 
 # Function to load and split the data from the PDF file
 def load_and_split_data(file_path):
-    chunks = []
     if file_path.endswith(".pdf"):
-        # Load the PDF file and split the data into chunks
-        loader = UnstructuredPDFLoader(file_path=file_path)
-        data = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500, chunk_overlap=100
-        )
-        chunks = text_splitter.split_documents(data)
-    elif file_path.endswith(".xlsx"):
+        return multimodal_ingestion(file_path)
+
+    chunks = []
+    if file_path.endswith(".xlsx"):
         if "test" in file_path.lower():
             data = pd.read_excel(
                 file_path, sheet_name=None, engine="openpyxl", header=[1]
             )
             for sheet_name, df in data.items():
-                df = df.astype(str)
-                df = df.replace("nan", "")
-                lines = []
-                for index, row in df.iterrows():
-                    line = " - ".join(
-                        [
-                            f"{col}: {"" if row[col] is None else  row[col]}".strip().replace(
-                                "\n", " "
-                            )
-                            for col in df.columns
-                        ]
-                    )
-                    lines.append(line)
+                df = df.astype(str).replace("nan", "")
+                lines = [
+                    " - ".join([f"{col}: {row[col]}" for col in df.columns])
+                    for _, row in df.iterrows()
+                ]
                 chunks = RecursiveCharacterTextSplitter().create_documents(lines)
-
         else:
             data = pd.read_excel(file_path, sheet_name=None, engine="openpyxl")
             for sheet_name, df in data.items():
-                df = df.astype(str)
-                df = df.replace("nan", "")
-                lines = []
-                for index, row in df.iterrows():
-                    line = " - ".join(
-                        [
-                            f"{col}: {"" if row[col] is None else  row[col]}".strip().replace(
-                                "\n", " "
-                            )
-                            for col in df.columns
-                        ]
-                    )
-                    lines.append(line)
+                df = df.astype(str).replace("nan", "")
+                lines = [
+                    " - ".join([f"{col}: {row[col]}" for col in df.columns])
+                    for _, row in df.iterrows()
+                ]
                 chunks = RecursiveCharacterTextSplitter(
                     chunk_size=250, chunk_overlap=50
                 ).create_documents(lines)
     elif file_path.endswith(".txt"):
         with open(file_path, "r") as f:
             data = f.read()
-
             chunks = RecursiveCharacterTextSplitter(
                 chunk_size=250, chunk_overlap=50
             ).create_documents([data])
@@ -92,7 +70,7 @@ def load_and_split_data(file_path):
 
 
 # Main function to handle the embedding process
-def embed(file):
+def embed(file, collection_name="default"):
     print(file)
     # Check if the file is valid, save it, load and split the data, add to the database, and remove the temporary file
     if file.filename != "" and file and allowed_file(file.filename):
@@ -102,7 +80,7 @@ def embed(file):
         texts = [chunk.page_content for chunk in chunks]
         chunk_embeddings = [em.embed_query(text) for text in texts]
 
-        collection.add(
+        create_or_get_collection(collection_name=collection_name).add(
             documents=texts,
             ids=chunk_ids,
             embeddings=chunk_embeddings,

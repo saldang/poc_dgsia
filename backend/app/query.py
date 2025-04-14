@@ -4,7 +4,7 @@ from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.retrievers.multi_query import MultiQueryRetriever
-from .vector_db import vector_store
+from .vector_db import get_vector_store
 
 LLM_MODEL = os.getenv("LLM_MODEL", "phi4")
 
@@ -27,16 +27,17 @@ def get_prompt():
 
 
 # Main function to handle the query process
-def query(input, model):
+def query(input, model, collection_name):
     if input:
         # Initialize the language model with the specified model name
-        llm = OllamaLLM(model=model)
+        llm = OllamaLLM(model=model, num_ctx=32128)
         # Get the vector database instance
 
         # Get the prompt templates
         QUERY_PROMPT, prompt = get_prompt()
 
         # Set up the retriever to generate multiple queries using the language model and the query prompt
+        vector_store = get_vector_store(collection_name)
         retriever = MultiQueryRetriever.from_llm(
             vector_store.as_retriever(), llm, prompt=QUERY_PROMPT
         )
