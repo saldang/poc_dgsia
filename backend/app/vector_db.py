@@ -56,23 +56,3 @@ def get_vector_store(collection_name: str):
     )
     COLLECTIONS[collection_name] = vectorstore
     return vectorstore
-
-
-def initialize_collections():
-    """Popola il dizionario COLLECTIONS con i vectorstore già esistenti."""
-    existing_collections = _chroma_client.list_collections()
-    for collection in existing_collections:
-
-        vector_store = chromadb.PersistentClient(
-            settings=Settings(
-                persist_directory=CHROMA_PATH,
-                anonymized_telemetry=False,
-            )
-        )
-        COLLECTIONS[collection] = vector_store
-
-
-# Call initialize_collections at the start of the application
-
-
-initialize_collections()
